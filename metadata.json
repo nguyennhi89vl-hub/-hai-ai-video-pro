@@ -1,0 +1,6 @@
+{
+  "name": "HẢI AI VIDEO PRO - Trình Tạo Video Tự Động Điện Ảnh",
+  "description": "Ứng dụng AI tạo video tự động đa nền tảng tối ưu cho điện thoại Android, tự động viết kịch bản tiếng Việt, lồng tiếng nam/nữ, ghép phụ đề, nhạc nền và xuất video dọc 9:16 cho Reels, TikTok, Shorts.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
