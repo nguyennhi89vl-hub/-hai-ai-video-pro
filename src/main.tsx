@@ -55,6 +55,43 @@ function App() {
         }
       }
       if (!finished) throw new Error("Video đang xử lý lâu hơn dự kiến. Vui lòng thử kiểm tra lại sau.");
+
+      // Generate Vietnamese voiceover for every scene, then mux it into the Veo video.
+      setStatus("Đang tạo giọng đọc tiếng Việt cho từng phân cảnh...");
+      for (let i = 0; i < nextProject.scenes.length; i++) {
+        const scene = nextProject.scenes[i];
+        const tts = await fetch("/api/tts/synthesize-scene", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            projectId: nextProject.id,
+            sceneIndex: i,
+            text: scene.voiceover,
+            gender: nextProject.voiceProfile?.voiceName?.toLowerCase().includes("nữ") ? "female" : "male",
+          }),
+        });
+        const ttsData = await tts.json();
+        if (!tts.ok || !ttsData.success) throw new Error(ttsData.error || "Không tạo được giọng đọc phân cảnh " + (i + 1));
+      }
+      const finalize = await fetch("/api/tts/finalize-project", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ projectId: nextProject.id }),
+      });
+      const finalizeData = await finalize.json();
+      if (!finalize.ok || !finalizeData.success) throw new Error(finalizeData.error || "Không hoàn tất được âm thanh.");
+
+      setStatus("Đang ghép giọng đọc vào video và xuất MP4...");
+      const generatedVideo = await fetch(downloadUrl || ("/api/veo/video/" + encodeURIComponent(veoData.id)));
+      if (!generatedVideo.ok) throw new Error("Không tải được video gốc từ Google Veo.");
+      const videoBlob = await generatedVideo.blob();
+      const mux = await fetch("/api/video/mux-final-mp4", {
+        method: "POST",
+        headers: { "Content-Type": "video/webm", "x-project-id": nextProject.id },
+        body: videoBlob,
+      });
+      const muxData = await mux.json();
+      if (!mux.ok || !muxData.success) throw new Error(muxData.error || "Không ghép được giọng đọc vào MP4.");
+      setDownloadUrl(muxData.downloadUrl); setStatus("Video đã tạo xong, có giọng đọc tiếng Việt! Bạn có thể tải MP4.");
+
     } catch (e) {
       setError(e instanceof Error ? e.message : "Đã xảy ra lỗi không xác định.");
       setStatus("");
