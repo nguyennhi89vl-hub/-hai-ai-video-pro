@@ -1220,16 +1220,80 @@ apiRouter.get('/video/blob/:filename', (req, res) => {
   fs.createReadStream(filePath).pipe(res);
 });
 
+// 7. GOOGLE VEO VIDEO GENERATION
+const veoOperations = new Map<string, any>();
+const veoFiles = new Map<string, string>();
+const VEO_MODEL = process.env.VEO_MODEL || 'veo-3.0-generate-001';
+
+apiRouter.post('/veo/generate', express.json({ limit: '1mb' }), async (req, res) => {
+  try {
+    const prompt = typeof req.body?.prompt === 'string' ? req.body.prompt.trim() : '';
+    const aspectRatio = req.body?.aspectRatio === '16:9' ? '16:9' : '9:16';
+    if (!prompt || prompt.length < 8) {
+      return res.status(400).json({ success: false, error: 'Hãy mô tả cảnh video ít nhất 8 ký tự.' });
+    }
+    if (!aiClient) {
+      return res.status(503).json({ success: false, error: 'Máy chủ chưa có GEMINI_API_KEY. Hãy kiểm tra biến môi trường trên Render.' });
+    }
+    const operation = await aiClient.models.generateVideos({
+      model: VEO_MODEL,
+      prompt,
+      config: { numberOfVideos: 1, aspectRatio },
+    });
+    const id = 'veo_' + crypto.randomUUID();
+    veoOperations.set(id, operation);
+    res.json({ success: true, id, status: 'processing', model: VEO_MODEL, message: 'Đã gửi yêu cầu tạo video. Quá trình có thể mất vài phút.' });
+  } catch (err: any) {
+    console.error('Veo generate error:', err);
+    res.status(502).json({ success: false, error: err.message || 'Không thể gửi yêu cầu Google Veo.' });
+  }
+});
+
+apiRouter.get('/veo/generate/:id', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const operation = veoOperations.get(id);
+    if (!operation) return res.status(404).json({ success: false, error: 'Không tìm thấy tiến trình Veo. Hãy tạo lại video.' });
+    if (!operation.done) {
+      const updated = await aiClient!.operations.getVideosOperation({ operation });
+      veoOperations.set(id, updated);
+      if (!updated.done) return res.json({ success: true, status: 'processing', message: 'Google Veo đang tạo video...' });
+      veoOperations.set(id, updated);
+    }
+    const completed = veoOperations.get(id);
+    if (completed.error) {
+      return res.status(502).json({ success: false, status: 'error', error: completed.error.message || 'Google Veo không tạo được video.' });
+    }
+    const generated = completed.response?.generatedVideos?.[0]?.video;
+    if (!generated) return res.status(502).json({ success: false, status: 'error', error: 'Google Veo không trả về tệp video.' });
+    let outputPath = veoFiles.get(id);
+    if (!outputPath || !fs.existsSync(outputPath)) {
+      outputPath = path.join(EXPORT_DIR, `${id}.mp4`);
+      await aiClient!.files.download({ file: generated, downloadPath: outputPath });
+      veoFiles.set(id, outputPath);
+    }
+    return res.json({ success: true, status: 'completed', downloadUrl: `/api/veo/video/${id}`, filename: `HAI_AI_VIDEO_PRO_${id}.mp4` });
+  } catch (err: any) {
+    console.error('Veo status error:', err);
+    res.status(502).json({ success: false, status: 'error', error: err.message || 'Lỗi kiểm tra tiến trình Veo.' });
+  }
+});
+
+apiRouter.get('/veo/video/:id', (req, res) => {
+  const filePath = veoFiles.get(req.params.id);
+  if (!filePath || !fs.existsSync(filePath)) return res.status(404).json({ success: false, error: 'Tệp video chưa sẵn sàng hoặc đã hết phiên.' });
+  res.download(filePath, `HAI_AI_VIDEO_PRO_${req.params.id}.mp4`);
+});
+
 // 7. VEO API STATUS
-apiRouter.get('/veo/status', (req, res) => {
+apiRouter.get('/veo/status', (_req, res) => {
   res.json({
-    engine: 'Google Veo / Gemini Omni Integration Architecture',
-    veoReady: false,
-    status: 'awaiting_veo_key',
-    message:
-      'Kiến trúc máy chủ HẢI AI VIDEO PRO đã cấu hình chuẩn schema cho Google Veo API. Hiện tại hệ thống kết hợp TTS tiếng Việt thực tế + FFmpeg audio muxing để xuất video MP4 có tiếng nói hoàn chỉnh.',
-    supportedResolutions: ['720x1280 (9:16)', '1080x1920 (9:16)', '1920x1080 (16:9)'],
-    supportedFramerate: '30fps / 60fps',
+    engine: 'Google Veo',
+    veoReady: Boolean(aiClient),
+    status: aiClient ? 'api_key_configured' : 'awaiting_api_key',
+    model: VEO_MODEL,
+    message: aiClient ? 'Đã cấu hình API key. Quyền truy cập Veo sẽ được xác nhận khi gửi yêu cầu tạo video.' : 'Chưa cấu hình GEMINI_API_KEY trên máy chủ.',
+    supportedAspectRatios: ['9:16', '16:9'],
   });
 });
 
