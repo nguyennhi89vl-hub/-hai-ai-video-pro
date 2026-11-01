@@ -85,7 +85,7 @@ function App() {
       const videoBlob = await generatedVideo.blob();
       const mux = await fetch("/api/video/mux-final-mp4", {
         method: "POST",
-        headers: { "Content-Type": "video/webm", "x-project-id": nextProject.id },
+        headers: { "Content-Type": "video/mp4", "x-project-id": nextProject.id },
         body: videoBlob,
       });
       const muxData = await mux.json();
